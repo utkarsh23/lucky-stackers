@@ -1,0 +1,7 @@
+[project]
+name = "lucky-stackers"
+requirements = []
+costs_version = 1
+[contracts.lucky-stackers]
+path = "contracts/lucky-stackers.clar"
+depends_on = []
