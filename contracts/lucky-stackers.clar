@@ -27,7 +27,7 @@
 ;; games data
 ;; (tuple (name "blockstack") (id 1337)) --> using tuple
 ;; {name: "blockstack", id: 1337} --> using curly brackets (a shorthand for tuple)
-(define-map game-data { id: uint } { time: uint, amount: uint, pending: bool, players: (list 6 principal) })
+(define-map game-data { id: uint } { time: uint, amount: uint, pending: bool, players: (list 6 principal), winner: (optional principal) })
 
 ;; private functions
 (define-private (add-player-to-game (sender-addr principal) (joining-game-id uint))
@@ -35,13 +35,9 @@
         (game (unwrap-panic (map-get? game-data { id: joining-game-id })))
     )
     (map-set game-data { id: joining-game-id }
-        { time: (get time game), amount: (get amount game), pending: true,
+        { time: (get time game), amount: (get amount game), pending: true, winner: none,
             players: (unwrap-panic (as-max-len? (append (get players game) sender-addr) u6)) })
 ))
-
-(define-private (get-player (top-three-indexes (list 3 uint)) (players (list 6 principal)) (index uint))
-    (unwrap-panic (element-at players (unwrap-panic (element-at top-three-indexes index))))
-)
 
 (define-private (complete-game (joining-game-id uint))
     (let (
@@ -52,23 +48,16 @@
             (let (
                 (total-amount (* (get amount game) u6))
                 (commission (* u2 (/ total-amount u100)))
-                (disbursement-amount (- total-amount commission))
-                (first-place (* u50 (/ disbursement-amount u100)))
-                (second-place (* u35 (/ disbursement-amount u100)))
-                (third-place (* u15 (/ disbursement-amount u100)))
-                (top-three-indexes (list u4 u2 u5))
+                (winner-prize (- total-amount commission))
+                (winner u3)
             )
-            (unwrap-panic (stx-transfer? commission (as-contract tx-sender) CONTRACT-CREATOR))
-            (unwrap-panic (stx-transfer? first-place (as-contract tx-sender)
-                (get-player top-three-indexes (get players game) u0)))
-            (unwrap-panic (stx-transfer? second-place (as-contract tx-sender)
-                (get-player top-three-indexes (get players game) u1)))
-            (unwrap-panic (stx-transfer? third-place (as-contract tx-sender)
-                (get-player top-three-indexes (get players game) u2)))
-            )
+            (as-contract (unwrap-panic (stx-transfer? commission (as-contract tx-sender) CONTRACT-CREATOR)))
+            (as-contract (unwrap-panic (stx-transfer? winner-prize (as-contract tx-sender)
+                (unwrap-panic (element-at (get players game) winner)))))
             (map-set game-data { id: joining-game-id }
-                { time: (get time game), amount: (get amount game),
+                { time: (get time game), amount: (get amount game), winner: (element-at (get players game) winner),
                     pending: false, players: (get players game) })
+            )
             (ok true)
         )
         (ok false)
@@ -100,7 +89,7 @@
         (game (unwrap-panic (map-get? game-data { id: any-game-id })))
     )
         (var-set any-participant sender)
-        (if (is-eq (len (filter is-not-participant (get players game))) (- (len (get players game)) u1))
+        (if (< (len (filter is-not-participant (get players game))) (len (get players game)))
             (unwrap-panic (ok true))
             (unwrap-panic (ok false))
         )
@@ -128,7 +117,7 @@
             (begin
                 (abort-disburse-stx aborting-game-id)
                 (map-set game-data { id: aborting-game-id }
-                    { time: (get time game), amount: (get amount game),
+                    { time: (get time game), amount: (get amount game), winner: none,
                         pending: false, players: (get players game) })
                 (ok true)
             )
@@ -141,11 +130,12 @@
     (let (
         (game (unwrap-panic (map-get? game-data { id: joining-game-id })))
     )
-        (if (and (get pending game) (check-if-participant joining-game-id tx-sender))
+        (if (and (get pending game) (not (check-if-participant joining-game-id tx-sender)))
             (match (stx-transfer? (get amount game) tx-sender (as-contract tx-sender))
                 success (begin
                     (add-player-to-game tx-sender joining-game-id)
-                    (complete-game joining-game-id)
+                    (unwrap-panic (complete-game joining-game-id))
+                    (ok true)
                 )
                 error (err ERR-INSUFFICIENT-AMT)
             )
@@ -164,7 +154,7 @@
                     (var-set game-id (+ (var-get game-id) u1))
                     (map-set game-data { id: (var-get game-id) }
                         { time: current-time, amount: game-amount, pending: true,
-                            players: (list tx-sender) })
+                            players: (list tx-sender), winner: none })
                     (ok true)
                 )
                 error (err ERR-INSUFFICIENT-AMT)
