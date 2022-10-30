@@ -131,6 +131,14 @@
 (define-read-only (get-game-data (read-game-id uint))
     (unwrap-panic (map-get? game-data { id: read-game-id })))
 
+(define-public (is-game-pending (read-game-id uint))
+    (let (
+        (game (unwrap-panic (map-get? game-data { id: read-game-id })))
+    )
+        (ok (get pending game))
+    )
+)
+
 (define-public (abort-game (aborting-game-id uint))
     (let (
         (game (unwrap-panic (map-get? game-data { id: aborting-game-id })))
